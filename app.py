@@ -6,13 +6,12 @@ from plotly.subplots import make_subplots
 import plotly.express as px
 from datetime import datetime, timedelta
 import numpy as np
-from scipy import stats
 
 # 페이지 설정
 st.set_page_config(page_title="KOSPI & S&P 200 지수 비교 및 분석", layout="wide")
 
 # 제목
-st.title("KOSPI와 S&P 200 지수 비교")
+st.title("KOSPI와 S&P 200 지수 비교 및 상관관계 분석")
 
 # 데이터 가져오기 함수
 @st.cache_data
@@ -31,8 +30,8 @@ kospi, sp200 = get_data()
 # 날짜 범위 선택
 date_range = st.date_input(
     "날짜 범위를 선택하세요",
-    value=(datetime(2021, 1, 1), datetime.now()),
-    min_value=datetime(2021, 1, 1),
+    value=(datetime(2023, 1, 1), datetime.now()),
+    min_value=datetime(2023, 1, 1),
     max_value=datetime.now()
 )
 
@@ -70,8 +69,15 @@ st.plotly_chart(fig1, use_container_width=True)
 combined_data = pd.concat([sp200_filtered['Close'], kospi_filtered['Close']], axis=1, keys=['S&P 200', 'KOSPI'])
 combined_data = combined_data.dropna()
 
-fig2 = px.scatter(combined_data, x='S&P 200', y='KOSPI', trendline="ols")
+fig2 = px.scatter(combined_data, x='S&P 200', y='KOSPI')
 fig2.update_layout(title="S&P 200 vs KOSPI 산점도")
+
+# 선형 회귀선 추가 (trendline="ols" 대신 수동으로 계산)
+x = combined_data['S&P 200']
+y = combined_data['KOSPI']
+coeffs = np.polyfit(x, y, deg=1)
+line = coeffs[0] * x + coeffs[1]
+fig2.add_trace(go.Scatter(x=x, y=line, mode='lines', name='Regression Line'))
 
 st.plotly_chart(fig2, use_container_width=True)
 
