@@ -1,1 +1,1 @@
-# kospi_snp200
+# kospi_snp500
