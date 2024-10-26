@@ -6,7 +6,7 @@ from plotly.subplots import make_subplots
 import plotly.express as px
 from datetime import datetime, timedelta
 import numpy as np
-from zoneinfo import ZoneInfo
+import pytz  # zoneinfo 대신 pytz 사용
 
 # 페이지 설정
 st.set_page_config(page_title="KOSPI & S&P 500 지수 비교 및 분석", layout="wide")
@@ -20,8 +20,8 @@ st.title("KOSPI와 S&P 500 지수 비교 및 상관관계 분석")
 def get_data():
     try:
         # UTC 기준으로 시간 설정
-        end_date = datetime.now(ZoneInfo("UTC"))
-        start_date = datetime(2023, 1, 1, tzinfo=ZoneInfo("UTC"))
+        end_date = datetime.now(pytz.UTC)
+        start_date = datetime(2023, 1, 1, tzinfo=pytz.UTC)
 
         kospi = yf.download("005930.KS", start=start_date, end=end_date)
         sp500 = yf.download("^GSPC", start=start_date, end=end_date)
@@ -34,6 +34,10 @@ def get_data():
         kospi = kospi.dropna()
         sp500 = sp500.dropna()
 
+        # 인덱스의 시간대 정보 추가
+        kospi.index = kospi.index.tz_localize(pytz.UTC)
+        sp500.index = sp500.index.tz_localize(pytz.UTC)
+
         return kospi, sp500
     except Exception as e:
         st.error(f"데이터를 불러오는 중 오류가 발생했습니다: {str(e)}")
@@ -44,10 +48,10 @@ def get_data():
 kospi, sp500 = get_data()
 
 if kospi is not None and sp500 is not None and not kospi.empty and not sp500.empty:
+    # 날짜 범위 선택
     try:
-        # 기본 날짜 설정 (UTC 기준)
-        default_end_date = datetime.now(ZoneInfo("UTC")).date()
-        default_start_date = datetime(2023, 1, 1, tzinfo=ZoneInfo("UTC")).date()
+        default_end_date = datetime.now(pytz.UTC).date()
+        default_start_date = datetime(2023, 1, 1).date()
 
         date_range = st.date_input(
             "날짜 범위를 선택하세요",
@@ -62,21 +66,17 @@ if kospi is not None and sp500 is not None and not kospi.empty and not sp500.emp
         else:
             start_date = end_date = date_range
 
-        # 날짜를 UTC timezone을 가진 datetime으로 변환
-        start_date = pd.Timestamp(start_date).tz_localize("UTC")
-        end_date = pd.Timestamp(end_date).tz_localize("UTC")
-
-        # 데이터 인덱스의 timezone 확인 및 설정
-        if kospi.index.tz is None:
-            kospi.index = kospi.index.tz_localize("UTC")
-        if sp500.index.tz is None:
-            sp500.index = sp500.index.tz_localize("UTC")
+        # 날짜를 datetime으로 변환
+        start_date = pd.Timestamp(start_date).tz_localize(pytz.UTC)
+        end_date = pd.Timestamp(end_date).tz_localize(pytz.UTC)
 
         # 선택된 날짜로 데이터 필터링
-        kospi_filtered = kospi.loc[start_date:end_date]
-        sp500_filtered = sp500.loc[start_date:end_date]
+        kospi_filtered = kospi[kospi.index.date >= start_date.date()]
+        kospi_filtered = kospi_filtered[kospi_filtered.index.date <= end_date.date()]
 
-        # 데이터가 충분한지 확인
+        sp500_filtered = sp500[sp500.index.date >= start_date.date()]
+        sp500_filtered = sp500_filtered[sp500_filtered.index.date <= end_date.date()]
+
         if len(kospi_filtered) > 0 and len(sp500_filtered) > 0:
             # 이중 축 그래프 생성
             fig1 = make_subplots(specs=[[{"secondary_y": True}]])
@@ -114,20 +114,23 @@ if kospi is not None and sp500 is not None and not kospi.empty and not sp500.emp
             st.plotly_chart(fig1, use_container_width=True)
 
             # 상관관계 산점도
-            combined_data = pd.DataFrame(
-                {"S&P 500": sp500_filtered["Close"], "KOSPI": kospi_filtered["Close"]}
+            df_combined = pd.DataFrame(
+                {
+                    "S&P 500": sp500_filtered["Close"].values,
+                    "KOSPI": kospi_filtered["Close"].values,
+                },
+                index=kospi_filtered.index,
             )
-            combined_data = combined_data.dropna()
 
-            if len(combined_data) > 1:
-                fig2 = px.scatter(combined_data, x="S&P 500", y="KOSPI")
+            df_combined = df_combined.dropna()
+
+            if len(df_combined) > 1:
+                fig2 = px.scatter(df_combined, x="S&P 500", y="KOSPI")
                 fig2.update_layout(title="S&P 500 vs KOSPI 산점도")
 
-                # 선형 회귀선 추가
-                x = combined_data["S&P 500"].values
-                y = combined_data["KOSPI"].values
-
-                if len(x) > 1 and len(y) > 1:  # 최소 2개 이상의 데이터 포인트 필요
+                if len(df_combined) > 1:  # 최소 2개 이상의 데이터 포인트 필요
+                    x = df_combined["S&P 500"].values
+                    y = df_combined["KOSPI"].values
                     coeffs = np.polyfit(x, y, deg=1)
                     line = coeffs[0] * x + coeffs[1]
                     fig2.add_trace(
@@ -137,37 +140,30 @@ if kospi is not None and sp500 is not None and not kospi.empty and not sp500.emp
                 st.plotly_chart(fig2, use_container_width=True)
 
                 # 상관계수 계산 및 표시
-                correlation = combined_data["KOSPI"].corr(combined_data["S&P 500"])
+                correlation = df_combined["KOSPI"].corr(df_combined["S&P 500"])
                 st.subheader("상관관계 분석")
                 st.write(f"KOSPI와 S&P 500의 상관계수: {correlation:.4f}")
 
                 # 선행성 분석
-                if len(combined_data) > 10:
+                if len(df_combined) > 10:
                     lags = range(1, 11)
                     correlations = []
+
                     for lag in lags:
-                        shifted = combined_data["S&P 500"].shift(lag)
-                        corr = combined_data["KOSPI"].corr(shifted)
-                        if not pd.isna(corr):  # NaN 값 제외
-                            correlations.append(corr)
-                        else:
-                            correlations.append(float("-inf"))
+                        lagged_data = df_combined.copy()
+                        lagged_data["S&P 500"] = lagged_data["S&P 500"].shift(lag)
+                        corr = lagged_data["KOSPI"].corr(lagged_data["S&P 500"])
+                        correlations.append(corr)
 
-                    if correlations:  # 리스트가 비어있지 않은 경우에만 실행
-                        max_correlation = max(correlations)
-                        if max_correlation != float("-inf"):
-                            max_lag = lags[correlations.index(max_correlation)]
-                            st.write(
-                                f"최대 상관계수: {max_correlation:.4f}, 발생 시점: {max_lag}일 전"
-                            )
+                    max_correlation = max(
+                        filter(lambda x: not pd.isna(x), correlations)
+                    )
+                    max_lag = lags[correlations.index(max_correlation)]
 
-                st.subheader("S&P 500의 KOSPI 예측 가능성 분석")
-                st.write(
-                    """
-                    분석 결과, S&P 500과 KOSPI 사이에 높은 상관관계가 있음을 확인했습니다...
-                    [이하 분석 텍스트는 동일하게 유지]
-                    """
-                )
+                    st.write(
+                        f"최대 상관계수: {max_correlation:.4f}, 발생 시점: {max_lag}일 전"
+                    )
+
             else:
                 st.warning("상관관계 분석을 위한 충분한 데이터가 없습니다.")
         else:
