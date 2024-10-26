@@ -37,28 +37,44 @@ def get_data():
 
         # KOSPI 데이터 시도
         kospi = fetch_data("^KS11", start_date, end_date)
-        if kospi is None:
+        if kospi is None or kospi.empty:
             kospi = fetch_data("EWY", start_date, end_date)
-            if kospi is None:
+            if kospi is None or kospi.empty:
+                st.error("KOSPI 데이터를 불러올 수 없습니다.")
                 return None, None
 
         # S&P 500 데이터 시도
         sp500 = fetch_data("SPY", start_date, end_date)
-        if sp500 is None:
+        if sp500 is None or sp500.empty:
             sp500 = fetch_data("^GSPC", start_date, end_date)
-            if sp500 is None:
+            if sp500 is None or sp500.empty:
+                st.error("S&P 500 데이터를 불러올 수 없습니다.")
                 return None, None
 
         # 결측치 처리
         kospi = kospi.dropna()
         sp500 = sp500.dropna()
 
+        # Close 컬럼이 있는지 확인
+        if "Close" not in kospi.columns or "Close" not in sp500.columns:
+            st.error("필요한 데이터 컬럼이 없습니다.")
+            return None, None
+
         # 기준일 대비 변화율로 정규화
         kospi_norm = kospi.copy()
         sp500_norm = sp500.copy()
 
-        kospi_norm["Close"] = (kospi_norm["Close"] / kospi_norm["Close"].iloc[0]) * 100
-        sp500_norm["Close"] = (sp500_norm["Close"] / sp500_norm["Close"].iloc[0]) * 100
+        if not kospi_norm.empty and not sp500_norm.empty:
+            # 첫 날 종가 확인
+            kospi_start = kospi_norm["Close"].iloc[0]
+            sp500_start = sp500_norm["Close"].iloc[0]
+
+            if kospi_start > 0 and sp500_start > 0:
+                kospi_norm["Close"] = (kospi_norm["Close"] / kospi_start) * 100
+                sp500_norm["Close"] = (sp500_norm["Close"] / sp500_start) * 100
+            else:
+                st.error("유효하지 않은 기준가격이 있습니다.")
+                return None, None
 
         return kospi_norm, sp500_norm
 
