@@ -18,15 +18,20 @@ st.title("KOSPI와 S&P 500 지수 비교 및 상관관계 분석")
 @st.cache_data
 def get_data(start_date, end_date):
     try:
-        kospi = yf.download("^KS11", start=start_date, end=end_date)
-        sp500 = yf.download(
-            "^GSPC", start=start_date, end=end_date
-        )  # Changed to correct S&P 500 ticker
+        kospi = yf.download("^KS11.KS", start=start_date, end=end_date)  # .KS 추가
+        sp500 = yf.download("^GSPC", start=start_date, end=end_date)
+        
+        if kospi.empty:
+            st.error("KOSPI 데이터를 가져올 수 없습니다.")
+            return None, None
+        if sp500.empty:
+            st.error("S&P 500 데이터를 가져올 수 없습니다.")
+            return None, None
+            
         return kospi, sp500
     except Exception as e:
         st.error(f"데이터 로드 중 오류가 발생했습니다: {str(e)}")
         return None, None
-
 
 # 날짜 범위 선택
 col1, col2 = st.columns(2)
