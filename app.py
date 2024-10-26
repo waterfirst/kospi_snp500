@@ -6,6 +6,7 @@ from plotly.subplots import make_subplots
 import plotly.express as px
 from datetime import datetime, timedelta
 import numpy as np
+from zoneinfo import ZoneInfo
 
 # 페이지 설정
 st.set_page_config(page_title="KOSPI & S&P 500 지수 비교 및 분석", layout="wide")
@@ -13,15 +14,15 @@ st.set_page_config(page_title="KOSPI & S&P 500 지수 비교 및 분석", layout
 # 제목
 st.title("KOSPI와 S&P 500 지수 비교 및 상관관계 분석")
 
+
 # 데이터 가져오기 함수
 @st.cache_data
 def get_data():
     try:
-        end_date = datetime.now()
-        start_date = datetime(2023, 1, 1)
+        # UTC 기준으로 시간 설정
+        end_date = datetime.now(ZoneInfo("UTC"))
+        start_date = datetime(2023, 1, 1, tzinfo=ZoneInfo("UTC"))
 
-        # 티커 심볼 변경: ^KS11 -> 005930.KS (삼성전자)를 KOSPI 대용으로 사용
-        # ^GSPC를 S&P 500 지수로 사용
         kospi = yf.download("005930.KS", start=start_date, end=end_date)
         sp500 = yf.download("^GSPC", start=start_date, end=end_date)
 
@@ -38,31 +39,38 @@ def get_data():
         st.error(f"데이터를 불러오는 중 오류가 발생했습니다: {str(e)}")
         return None, None
 
+
 # 데이터 로드
 kospi, sp500 = get_data()
 
 if kospi is not None and sp500 is not None and not kospi.empty and not sp500.empty:
-    # 날짜 범위 선택
     try:
-        default_end_date = datetime.now().date()
-        default_start_date = datetime(2023, 1, 1).date()
-        
+        # 기본 날짜 설정 (UTC 기준)
+        default_end_date = datetime.now(ZoneInfo("UTC")).date()
+        default_start_date = datetime(2023, 1, 1, tzinfo=ZoneInfo("UTC")).date()
+
         date_range = st.date_input(
             "날짜 범위를 선택하세요",
             value=(default_start_date, default_end_date),
             min_value=default_start_date,
             max_value=default_end_date,
         )
-        
+
         # date_range가 단일 날짜인 경우 처리
         if isinstance(date_range, tuple):
             start_date, end_date = date_range
         else:
             start_date = end_date = date_range
-            
-        # 날짜를 datetime으로 변환
-        start_date = pd.Timestamp(start_date)
-        end_date = pd.Timestamp(end_date)
+
+        # 날짜를 UTC timezone을 가진 datetime으로 변환
+        start_date = pd.Timestamp(start_date).tz_localize("UTC")
+        end_date = pd.Timestamp(end_date).tz_localize("UTC")
+
+        # 데이터 인덱스의 timezone 확인 및 설정
+        if kospi.index.tz is None:
+            kospi.index = kospi.index.tz_localize("UTC")
+        if sp500.index.tz is None:
+            sp500.index = sp500.index.tz_localize("UTC")
 
         # 선택된 날짜로 데이터 필터링
         kospi_filtered = kospi.loc[start_date:end_date]
@@ -106,10 +114,9 @@ if kospi is not None and sp500 is not None and not kospi.empty and not sp500.emp
             st.plotly_chart(fig1, use_container_width=True)
 
             # 상관관계 산점도
-            combined_data = pd.DataFrame({
-                "S&P 500": sp500_filtered["Close"],
-                "KOSPI": kospi_filtered["Close"]
-            })
+            combined_data = pd.DataFrame(
+                {"S&P 500": sp500_filtered["Close"], "KOSPI": kospi_filtered["Close"]}
+            )
             combined_data = combined_data.dropna()
 
             if len(combined_data) > 1:
@@ -119,11 +126,13 @@ if kospi is not None and sp500 is not None and not kospi.empty and not sp500.emp
                 # 선형 회귀선 추가
                 x = combined_data["S&P 500"].values
                 y = combined_data["KOSPI"].values
-                
+
                 if len(x) > 1 and len(y) > 1:  # 최소 2개 이상의 데이터 포인트 필요
                     coeffs = np.polyfit(x, y, deg=1)
                     line = coeffs[0] * x + coeffs[1]
-                    fig2.add_trace(go.Scatter(x=x, y=line, mode="lines", name="Regression Line"))
+                    fig2.add_trace(
+                        go.Scatter(x=x, y=line, mode="lines", name="Regression Line")
+                    )
 
                 st.plotly_chart(fig2, use_container_width=True)
 
@@ -142,13 +151,15 @@ if kospi is not None and sp500 is not None and not kospi.empty and not sp500.emp
                         if not pd.isna(corr):  # NaN 값 제외
                             correlations.append(corr)
                         else:
-                            correlations.append(float('-inf'))
+                            correlations.append(float("-inf"))
 
                     if correlations:  # 리스트가 비어있지 않은 경우에만 실행
                         max_correlation = max(correlations)
-                        if max_correlation != float('-inf'):
+                        if max_correlation != float("-inf"):
                             max_lag = lags[correlations.index(max_correlation)]
-                            st.write(f"최대 상관계수: {max_correlation:.4f}, 발생 시점: {max_lag}일 전")
+                            st.write(
+                                f"최대 상관계수: {max_correlation:.4f}, 발생 시점: {max_lag}일 전"
+                            )
 
                 st.subheader("S&P 500의 KOSPI 예측 가능성 분석")
                 st.write(
